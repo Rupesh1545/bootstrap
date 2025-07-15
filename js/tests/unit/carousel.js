@@ -637,6 +637,81 @@ $(function () {
       })
       .bootstrapCarousel('prev')
   })
+  
+  QUnit.module('carousel XSS patch tests', {
+  beforeEach: function () {
+    $.fn.bootstrapCarousel = $.fn.carousel.noConflict()
+  },
+  afterEach: function () {
+    $.fn.carousel = $.fn.bootstrapCarousel
+    delete $.fn.bootstrapCarousel
+  }
+})
+
+QUnit.test('should sanitize javascript: URI in data-interval', function (assert) {
+  assert.expect(1)
+  var $el = $('<div class="carousel slide" data-ride="carousel" data-interval="javascript:alert(1)"><div class="carousel-inner"><div class="item active"></div></div></div>')
+  $el.bootstrapCarousel()
+  var interval = $el.data('bs.carousel').options.interval
+  assert.ok(typeof interval !== 'string' || !/javascript:/i.test(interval), 'data-interval was sanitized')
+})
+
+QUnit.test('should sanitize <script> in data-interval', function (assert) {
+  assert.expect(1)
+  var $el = $('<div class="carousel slide" data-ride="carousel" data-interval="<script>alert(1)</script>"><div class="carousel-inner"><div class="item active"></div></div></div>')
+  $el.bootstrapCarousel()
+  var interval = $el.data('bs.carousel').options.interval
+  assert.notOk(/<script>/i.test(interval), 'data-interval with <script> was sanitized')
+})
+
+QUnit.test('should block javascript: URI in href attribute', function (assert) {
+  assert.expect(1)
+  var done = assert.async()
+
+  var $carousel = $('<div class="carousel slide" id="xss-carousel"><div class="carousel-inner"><div class="item active"></div></div></div>').appendTo('body')
+  var $link = $('<a data-target="#xss-carousel" data-slide-to="1" href="javascript:alert(\'XSS\')">Click</a>').appendTo('body')
+
+  // Spy on window.alert
+  var originalAlert = window.alert
+  var alertCalled = false
+  window.alert = function () {
+    alertCalled = true
+  }
+
+  $link[0].click()
+
+  setTimeout(function () {
+    window.alert = originalAlert // Restore original alert
+    $carousel.remove()
+    $link.remove()
+    assert.notOk(alertCalled, 'alert() should not be called from javascript: href')
+    done()
+  }, 100)
+})
+
+
+QUnit.test('should initialize with clean interval if numeric value given', function (assert) {
+  assert.expect(1)
+  var $el = $('<div class="carousel slide" data-ride="carousel" data-interval="5000"><div class="carousel-inner"><div class="item active"></div></div></div>')
+  $el.bootstrapCarousel()
+  var interval = $el.data('bs.carousel').options.interval
+  assert.strictEqual(interval, 5000, 'interval is accepted as numeric value')
+})
+
+QUnit.test('should ignore dangerous data-target content', function (assert) {
+  assert.expect(1)
+  var $el = $('<a href="#" data-target="javascript:alert(1)" data-slide-to="1">Test</a>')
+  var wasSafe = true
+
+  try {
+    $el.trigger('click')
+  } catch (e) {
+    wasSafe = false
+  }
+
+  assert.ok(wasSafe, 'no error or script execution from data-target')
+})
+
 
   QUnit.test('should stay at the end when the next method is called and wrap is false', function (assert) {
     assert.expect(3)
