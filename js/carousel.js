@@ -9,6 +9,15 @@
 
 +function ($) {
   'use strict';
+  function sanitizeData(value) {
+     if (typeof value !== 'string') return value;
+     // Remove script tags and dangerous protocols
+     if (/javascript:|data:|vbscript:|<\s*script/gi.test(value)) {
+     return '';
+     }
+    return value;
+}
+
 
   // CAROUSEL CLASS DEFINITION
   // =========================
@@ -17,6 +26,10 @@
     this.$element    = $(element)
     this.$indicators = this.$element.find('.carousel-indicators')
     this.options     = options
+    // Final optional hardening — sanitize interval in constructor
+     if (typeof this.options.interval === 'string') {
+          this.options.interval = sanitizeData(this.options.interval);
+      }
     this.paused      = null
     this.sliding     = null
     this.interval    = null
@@ -53,16 +66,22 @@
   }
 
   Carousel.prototype.cycle = function (e) {
-    e || (this.paused = false)
+  e || (this.paused = false)
 
-    this.interval && clearInterval(this.interval)
+  this.interval && clearInterval(this.interval)
 
-    this.options.interval
-      && !this.paused
-      && (this.interval = setInterval($.proxy(this.next, this), this.options.interval))
-
-    return this
+  // Defensive check: sanitize string-based interval
+  if (typeof this.options.interval === 'string') {
+    this.options.interval = sanitizeData(this.options.interval)
   }
+
+  this.options.interval
+    && !this.paused
+    && (this.interval = setInterval($.proxy(this.next, this), this.options.interval))
+
+  return this
+}
+
 
   Carousel.prototype.getItemIndex = function (item) {
     this.$items = item.parent().children('.item')
@@ -179,7 +198,17 @@
     return this.each(function () {
       var $this   = $(this)
       var data    = $this.data('bs.carousel')
-      var options = $.extend({}, Carousel.DEFAULTS, $this.data(), typeof option == 'object' && option)
+      var rawData = $.extend({}, $this.data(), typeof option == 'object' && option);
+
+// Sanitize dangerous fields
+    ['interval', 'target'].forEach(function (key) {
+      if (rawData[key]) {
+     rawData[key] = sanitizeData(rawData[key]);
+     }
+ });
+
+var options = $.extend({}, Carousel.DEFAULTS, rawData);
+
       var action  = typeof option == 'string' ? option : options.slide
 
       if (!data) $this.data('bs.carousel', (data = new Carousel(this, options)))
@@ -208,29 +237,46 @@
   // =================
 
   var clickHandler = function (e) {
-    var $this   = $(this)
-    var href    = $this.attr('href')
-    if (href) {
-      href = href.replace(/.*(?=#[^\s]+$)/, '') // strip for ie7
-    }
+  var $this = $(this);
+  var href = $this.attr('href');
 
-    var target  = $this.attr('data-target') || href
-    var $target = $(document).find(target)
-
-    if (!$target.hasClass('carousel')) return
-
-    var options = $.extend({}, $target.data(), $this.data())
-    var slideIndex = $this.attr('data-slide-to')
-    if (slideIndex) options.interval = false
-
-    Plugin.call($target, options)
-
-    if (slideIndex) {
-      $target.data('bs.carousel').to(slideIndex)
-    }
-
-    e.preventDefault()
+  // ✅ PATCH: Block javascript: URIs early
+  if (href && /^javascript:/i.test(href)) {
+    e.preventDefault();
+    return;
   }
+
+  if (href) {
+    href = href.replace(/.*(?=#[^\s]+$)/, ''); // strip for IE7
+  }
+
+  var target = $this.attr('data-target') || href;
+  var $target = $(document).find(target);
+
+  if (!$target.length || !$target.hasClass('carousel')) return;
+
+  var rawOptions = $.extend({}, $target.data(), $this.data());
+
+  // ✅ Sanitize data-* values (interval, target, etc.)
+  ['interval', 'target'].forEach(function (key) {
+    if (rawOptions[key]) {
+      rawOptions[key] = sanitizeData(rawOptions[key]);
+    }
+  });
+
+  var options = rawOptions;
+  var slideIndex = $this.attr('data-slide-to');
+
+  if (slideIndex) options.interval = false;
+
+  Plugin.call($target, options);
+
+  if (slideIndex) {
+    $target.data('bs.carousel').to(slideIndex);
+  }
+
+  e.preventDefault();
+};
 
   $(document)
     .on('click.bs.carousel.data-api', '[data-slide]', clickHandler)
